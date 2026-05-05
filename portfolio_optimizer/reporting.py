@@ -8,14 +8,68 @@ import pandas as pd
 from .metrics import PortfolioStats, portfolio_stats
 
 
-def print_stats(label: str, stats: PortfolioStats, tickers: list[str], weights: np.ndarray):
+def _num_or_na(v, spec: str, width: int) -> str:
+    """Format a numeric metric to fixed width, or right-pad 'n/a' to the same width."""
+    return format(v, spec) if isinstance(v, (int, float)) else "n/a".rjust(width)
+
+
+def _format_fundamentals_inline(f: dict) -> str:
+    """One-line snapshot of P/E, PEG, P/B, Div% for the weights view.
+
+    Widths chosen to handle the awkward edge cases that show up in real data:
+    negative P/B (Liberty share classes carry it), 3-digit P/E, and so on —
+    so columns align even when those rows appear.
+    """
+    pe = f.get("trailingPE")
+    peg = f.get("pegRatio")
+    pb = f.get("priceToBook")
+    dy = f.get("dividendYield")  # yfinance ≥ ~0.2.30 returns percent already
+
+    div_str = f"{dy:5.2f}%" if isinstance(dy, (int, float)) else "n/a".rjust(6)
+
+    return (
+        f"P/E {_num_or_na(pe, '6.1f', 6)}    "
+        f"PEG {_num_or_na(peg, '5.2f', 5)}    "
+        f"P/B {_num_or_na(pb, '7.2f', 7)}    "
+        f"Div {div_str}"
+    )
+
+
+def _make_bar(weight: float, bar_width: int) -> str:
+    """Filled-block bar (1 char per 2.5%) padded to bar_width with ░ for unfilled.
+
+    Truly-zero weights render as whitespace so empty rows aren't visually noisy.
+    """
+    if weight <= 1e-4:
+        return " " * bar_width
+    fill = min(int(weight * 40), bar_width)
+    return "█" * fill + "░" * (bar_width - fill)
+
+
+def print_stats(
+    label: str,
+    stats: PortfolioStats,
+    tickers: list[str],
+    weights: np.ndarray,
+    fundamentals: dict[str, dict] | None = None,
+):
     print(f"\n{'=' * 60}")
     print(f"  {label}")
     print(f"{'=' * 60}")
     print("Weights:")
+
+    # Bar width = widest single bar in this view, with a minimum for breathing
+    # room when caps keep all positions small (e.g. max_weight=0.10 → 4-char bars).
+    max_fill = max((int(w * 40) for w in weights), default=0)
+    bar_width = max(max_fill, 10)
+
     for t, w in sorted(zip(tickers, weights), key=lambda x: -x[1]):
-        bar = "█" * int(w * 40)
-        print(f"  {t:8s} {w * 100:6.2f}%  {bar}")
+        bar = _make_bar(w, bar_width)
+        line = f"  {t:8s} {w * 100:6.2f}%   {bar}"
+        if fundamentals is not None and w > 1e-4:
+            f = fundamentals.get(t) or {}
+            line += "    " + _format_fundamentals_inline(f)
+        print(line)
     print()
     print(f"  Annual return    : {stats.annual_return * 100:6.2f}%")
     print(f"  Annual volatility: {stats.annual_vol * 100:6.2f}%")
@@ -71,11 +125,7 @@ def fundamentals_table(fundamentals: dict[str, dict]):
         fpe = f.get("forwardPE")
         peg = f.get("pegRatio")
         pb = f.get("priceToBook")
-        dy = f.get("dividendYield")
-
-        # yfinance flips between decimal (0.015) and percent (1.5) for dividendYield
-        # depending on version; normalize to percent.
-        dy_pct = (dy * 100 if isinstance(dy, (int, float)) and dy < 1 else dy)
+        dy = f.get("dividendYield")  # current yfinance returns percent
 
         notes = []
         if (isinstance(pe, (int, float)) and pe > 0
@@ -93,7 +143,7 @@ def fundamentals_table(fundamentals: dict[str, dict]):
             f"{_fmt(fpe, 8, '8.1f')} "
             f"{_fmt(peg, 6, '6.2f')} "
             f"{_fmt(pb, 6, '6.2f')} "
-            f"{_fmt(dy_pct, 6, '5.2f') + '%' if isinstance(dy_pct, (int, float)) else '   n/a'}"
+            f"{_fmt(dy, 6, '5.2f') + '%' if isinstance(dy, (int, float)) else '   n/a'}"
             f"  {', '.join(notes)}"
         )
 

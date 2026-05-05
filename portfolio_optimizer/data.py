@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 
 from . import cache, fetch
-from .config import CACHE_STALE_DAYS, FUND_STALE_DAYS
+from .config import CACHE_STALE_DAYS, FETCH_DELAY_SECONDS, FUND_STALE_DAYS
 
 
 def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
@@ -41,6 +43,7 @@ def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
             # Cache covers the window but the tail is stale — incremental update
             fetch_start = cached.index.max() + pd.Timedelta(days=1)
             print(f"  {ticker}: updating   ({fetch_start.date()} → {today.date()})...")
+            time.sleep(FETCH_DELAY_SECONDS)
             new_close = fetch.yf_close(ticker, fetch_start, today)
             if not new_close.empty:
                 merged = pd.concat([cached["close"], new_close]).sort_index()
@@ -54,6 +57,7 @@ def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
 
         # No cache, or cache doesn't reach back to requested start — full fetch
         print(f"  {ticker}: full fetch ({start.date()} → {today.date()})...")
+        time.sleep(FETCH_DELAY_SECONDS)
         fetched = fetch.yf_close(ticker, start, today)
         if not fetched.empty:
             cache.save_prices(ticker, fetched, requested_start=start)
@@ -108,6 +112,7 @@ def fetch_fundamentals(tickers: list[str]) -> dict[str, dict]:
                 continue
 
         print(f"  {ticker}: refreshing...")
+        time.sleep(FETCH_DELAY_SECONDS)
         data = fetch.yf_fundamentals(ticker)
         if data:
             data["_fetched"] = today.isoformat()

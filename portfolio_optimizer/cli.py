@@ -68,7 +68,8 @@ def main(argv: list[str] | None = None) -> None:
 
     per_asset_table(daily_returns)
     correlation_matrix(daily_returns)
-    fundamentals_table(fetch_fundamentals(tickers))
+    fundamentals = fetch_fundamentals(tickers)
+    fundamentals_table(fundamentals)
 
     n = len(tickers)
     eq_weights = np.ones(n) / n
@@ -88,6 +89,7 @@ def main(argv: list[str] | None = None) -> None:
         opt_stats,
         tickers,
         opt_weights,
+        fundamentals=fundamentals,
     )
 
     print("\n" + "=" * 60)

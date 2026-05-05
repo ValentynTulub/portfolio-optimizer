@@ -37,7 +37,8 @@ With custom args:
 python optimize.py --years 15 --max-weight 0.40
 
 # Different basket; note BRK.B is "BRK-B" in yfinance
-python optimize.py --tickers VGT,VOO,QQQM,BRK-B,AMZN,GLD --years 10
+python optimize.py 
+VGT,VOO,QQQM,BRK-B,AMZN,GLD --years 10
 
 # Optimize for Calmar instead (return / max drawdown)
 python optimize.py --objective calmar

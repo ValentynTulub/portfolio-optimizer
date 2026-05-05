@@ -22,6 +22,14 @@ def tmp_cache(tmp_path: Path, monkeypatch) -> Path:
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _no_throttle(monkeypatch):
+    """Zero out the inter-fetch sleep across the entire test suite."""
+    from portfolio_optimizer import data
+
+    monkeypatch.setattr(data, "FETCH_DELAY_SECONDS", 0)
+
+
 @pytest.fixture
 def fake_series():
     """Smooth daily series indexed by trading days. Caller picks length and end-date."""
