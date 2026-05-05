@@ -49,6 +49,10 @@ def _cache_path(ticker: str) -> Path:
     return CACHE_DIR / f"{ticker.replace('/', '_')}.csv"
 
 
+def _meta_path(ticker: str) -> Path:
+    return CACHE_DIR / f"{ticker.replace('/', '_')}.meta.json"
+
+
 def _load_cache(ticker: str) -> pd.DataFrame | None:
     p = _cache_path(ticker)
     if not p.exists():
@@ -58,9 +62,33 @@ def _load_cache(ticker: str) -> pd.DataFrame | None:
     return df  # columns: ["close"]
 
 
-def _save_cache(ticker: str, series: pd.Series):
+def _load_meta(ticker: str) -> dict:
+    p = _meta_path(ticker)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_cache(ticker: str, series: pd.Series, requested_start: pd.Timestamp):
+    """Persist prices plus a metadata sidecar tracking the earliest start ever requested.
+
+    `requested_start` is the user-asked start date — not the first row of data.
+    Storing it lets us recognize "we already tried fetching this far back and that's
+    all yfinance has" (e.g. pre-IPO, ETF inception, weekend-rounded boundaries),
+    so the next run with the same window can use the cache instead of re-fetching.
+    """
     CACHE_DIR.mkdir(exist_ok=True)
     series.to_frame("close").to_csv(_cache_path(ticker), index_label="date")
+
+    meta = _load_meta(ticker)
+    prior = meta.get("earliest_requested_start")
+    earliest = requested_start.date().isoformat()
+    if prior is None or prior > earliest:
+        meta["earliest_requested_start"] = earliest
+    _meta_path(ticker).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 def _looks_clean(close: pd.Series, ticker: str) -> bool:
@@ -191,8 +219,16 @@ def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
 
     for ticker in tickers:
         cached = _load_cache(ticker)
+        meta = _load_meta(ticker)
         has_cache = cached is not None and not cached.empty
-        covers_start = has_cache and cached.index.min() <= start
+
+        # Cache "covers the start" when we previously asked yfinance for at least
+        # this far back. Whatever it returned is all that exists — comparing
+        # against cached.index.min() would falsely miss when start lands on a
+        # weekend or before the asset's IPO.
+        prior_start_iso = meta.get("earliest_requested_start")
+        prior_start = pd.Timestamp(prior_start_iso) if prior_start_iso else None
+        covers_start = has_cache and prior_start is not None and prior_start <= start
         fresh = has_cache and cached.index.max() >= freshness_cutoff
 
         if has_cache and covers_start and fresh:
@@ -208,7 +244,7 @@ def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
             if not new_close.empty:
                 merged = pd.concat([cached["close"], new_close]).sort_index()
                 merged = merged[~merged.index.duplicated(keep="last")]
-                _save_cache(ticker, merged)
+                _save_cache(ticker, merged, requested_start=start)
                 series_by_ticker[ticker] = merged
             else:
                 print(f"    ! update failed; using cached data through {cached.index.max().date()}")
@@ -219,7 +255,7 @@ def fetch_prices(tickers: list[str], years: int) -> pd.DataFrame:
         print(f"  {ticker}: full fetch ({start.date()} → {today.date()})...")
         fetched = _yf_close(ticker, start, today)
         if not fetched.empty:
-            _save_cache(ticker, fetched)
+            _save_cache(ticker, fetched, requested_start=start)
             series_by_ticker[ticker] = fetched
         elif has_cache:
             print(f"    ! fetch failed; using partial cache "
