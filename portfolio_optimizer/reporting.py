@@ -107,6 +107,47 @@ def correlation_matrix(daily_returns: pd.DataFrame):
     print(corr.round(2).to_string())
 
 
+def print_backtest_comparison(
+    fit: PortfolioStats,
+    oos: PortfolioStats,
+    fit_window: tuple[pd.Timestamp, pd.Timestamp],
+    oos_window: tuple[pd.Timestamp, pd.Timestamp],
+    fit_rows: int,
+    oos_rows: int,
+):
+    """Side-by-side: weights' in-sample fit vs the same weights applied to held-out data.
+
+    Big drops from in-sample to OOS are the diagnostic for overfitting.
+    """
+    print(f"\n{'=' * 72}")
+    print("  In-sample fit  vs  out-of-sample reality")
+    print(f"{'=' * 72}")
+    print(f"  Fit window:        {fit_window[0].date()} → {fit_window[1].date()}   ({fit_rows} days)")
+    print(f"  Out-of-sample:     {oos_window[0].date()} → {oos_window[1].date()}   ({oos_rows} days)")
+    print()
+    print(f"  {'Metric':<22} {'In-sample':>14} {'Out-of-sample':>16} {'Δ':>10}")
+    print(f"  {'-' * 22} {'-' * 14} {'-' * 16} {'-' * 10}")
+
+    def _row(name: str, in_v: float, out_v: float, is_pct: bool):
+        delta = out_v - in_v
+        if is_pct:
+            return (
+                f"  {name:<22} "
+                f"{in_v * 100:>13.2f}% "
+                f"{out_v * 100:>15.2f}% "
+                f"{delta * 100:>+9.2f}%"
+            )
+        return f"  {name:<22} {in_v:>14.3f} {out_v:>16.3f} {delta:>+10.3f}"
+
+    print(_row("Annual return",     fit.annual_return,  oos.annual_return,  True))
+    print(_row("Annual volatility", fit.annual_vol,     oos.annual_vol,     True))
+    print(_row("Downside vol",      fit.downside_vol,   oos.downside_vol,   True))
+    print(_row("Sharpe",            fit.sharpe,         oos.sharpe,         False))
+    print(_row("Sortino",           fit.sortino,        oos.sortino,        False))
+    print(_row("Max drawdown",      fit.max_drawdown,   oos.max_drawdown,   True))
+    print(_row("Calmar",            fit.calmar,         oos.calmar,         False))
+
+
 def fundamentals_table(fundamentals: dict[str, dict]):
     print(f"\n{'=' * 60}")
     print("  Valuation snapshot")
